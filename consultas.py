@@ -8,11 +8,21 @@ import plotly.express as px
 import resumen_general
 
 # Título del Dashboard
-st.title("KPI RIELECOM SPA")
+#st.title("KPI RIELECOM SPA")
 
 # Carpeta que contiene los archivos de datos diarios
 carpeta_datos = "Data_diaria"
 patron_archivo = r"Actividades-(RIELECOM - RM|MultiSkill \(Rielecom-3Play-RM\))(_|-)\d{2}_\d{2}_\d{2}( \(\d+\))?\.xlsx"
+
+import streamlit as st
+import pandas as pd
+import os
+import re
+import verificar_formato  # Asegúrate de que este archivo exista y esté en el mismo directorio
+
+# Carpeta que contiene los archivos de datos diarios
+carpeta_datos = "Data_diaria"
+patron_archivo = r"Actividades-(RIELECOM - RM|MultiSkill \(Rielecom-3Play-RM\))(_|-)\d{2}_\d{2}_\d{2}( \(\d+\))?\.((xlsx)|(csv))"
 
 @st.cache_data
 def cargar_y_verificar_datos(carpeta, patron):
@@ -22,10 +32,18 @@ def cargar_y_verificar_datos(carpeta, patron):
         for nombre_archivo in os.listdir(carpeta):
             if re.match(patron, nombre_archivo):
                 ruta_archivo = os.path.join(carpeta, nombre_archivo)
-                formato_correcto, mensaje_formato = verificar_formato.verificar_formato_actividades(ruta_archivo)
+                formato_correcto = True  # Asumimos formato correcto para CSV inicialmente
+                mensaje_formato = ""
+
+                if nombre_archivo.endswith(".xlsx"):
+                    formato_correcto, mensaje_formato = verificar_formato.verificar_formato_actividades(ruta_archivo)
+
                 if formato_correcto:
                     try:
-                        df = pd.read_excel(ruta_archivo, engine="openpyxl")
+                        if nombre_archivo.endswith(".xlsx"):
+                            df = pd.read_excel(ruta_archivo, engine="openpyxl")
+                        elif nombre_archivo.endswith(".csv"):
+                            df = pd.read_csv(ruta_archivo)
                         all_data.append(df)
                         archivos_cargados.append(nombre_archivo)
                     except Exception as e:
@@ -45,6 +63,76 @@ def cargar_y_verificar_datos(carpeta, patron):
 data_combinada = cargar_y_verificar_datos(carpeta_datos, patron_archivo)
 
 if data_combinada is not None:
+    # ... (El resto de tu código para calcular etiquetas y mostrar el dashboard) ...
+
+    # --- Cálculo de Total Finalizadas y Total Asignadas para las etiquetas ---
+    exclusiones = ['Almuerzos', 'Permiso', 'Reunion', 'Mantencion Vehicular', 'Curso', 'Levantamiento', 'Apoyo Terreno']
+
+    # Filtrar las actividades excluyendo los tipos especificados
+    df_filtered = data_combinada[~data_combinada['Tipo de actividad'].str.lower().str.contains('|'.join(exclusiones).lower(), na=False)].copy()
+
+    # Calcular Total Finalizadas (Reparación, Posventa, Instalación)
+    total_finalizadas = df_filtered[
+        df_filtered['Estado de actividad'].str.lower() == 'finalizada'
+    ][
+        df_filtered['Tipo de actividad'].str.lower().str.contains('instalación|reparación|postventa', na=False)
+    ]['ID externo'].nunique()
+
+    # Calcular Total Asignadas (Finalizadas + No Realizado)
+    total_asignadas = df_filtered[
+        df_filtered['Estado de actividad'].str.lower().isin(['finalizada', 'no realizado'])
+    ][
+        df_filtered['Tipo de actividad'].str.lower().str.contains('instalación|reparación|postventa', na=False)
+    ]['ID externo'].nunique()
+
+    # --- Estilo CSS para las etiquetas grandes ---
+    label_style = """
+        <style>
+            .label-container {
+                display: flex;
+                gap: 20px; /* Espacio entre las etiquetas */
+                align-items: center; /* Alineación vertical */
+                margin-left: -300px; /* Empuja el contenedor a la derecha */
+                margin-top: -80px; /* Mueve el contenedor hacia arriba (ajusta el valor según necesites) */
+            }
+            .label-box {
+                background-color: #f0f2f6; /* Color de fondo del cuadrado */
+                border-radius: 5px; /* Bordes redondeados */
+                padding: 15px 20px; /* Espacio interno */
+                text-align: center;
+                font-size: 1.2em;
+                font-weight: bold;
+            }
+            .label-title {
+                font-size: 0.8em;
+                color: #555;
+            }
+        </style>
+    """
+
+    # --- Mostrar el título y las etiquetas con estilo ---
+    st.markdown(label_style, unsafe_allow_html=True)
+
+    st.markdown(
+    f"""
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>KPI RIELECOM SPA</h1>
+        <div style="margin-left: 50px; margin-top: -15px;">
+            <div class="label-container">
+                <div class="label-box">
+                    <div class="label-title">Total Finalizadas</div>
+                    <div>{total_finalizadas}</div>
+                </div>
+                <div class="label-box">
+                    <div class="label-title">Total Asignadas</div>
+                    <div>{total_asignadas}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
     # --- Campo de Búsqueda de Cliente ---
     st.subheader("Buscar Información de Cliente")
     termino_busqueda = st.text_input("Ingrese Nombre, RUT, ID Externo, Dirección, Ciudad, Comuna, Teléfono, Correo o Cod_Servicio:")
@@ -499,6 +587,47 @@ if data_combinada is not None:
                 st.info("No hay actividades de instalación, reparación o postventa para el año 2024.")
         else:
             st.info("No hay datos disponibles para el año 2024.")
+    else:
+        st.warning("Una o más de las columnas necesarias ('Fecha Agendamiento', 'Tipo de actividad', 'Estado de actividad', 'Recurso') no se encontraron en los datos.")
+
+        st.subheader("Resumen de Actividades Año 2025 (Instalación + Reparación + Postventa)")
+    if 'Fecha Agendamiento' in data_combinada.columns and 'Tipo de actividad' in data_combinada.columns and 'Estado de actividad' in data_combinada.columns and 'Recurso' in data_combinada.columns:
+        data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], errors='coerce')
+        data_2025 = data_combinada[data_combinada['Fecha Agendamiento'].dt.year == 2025].copy()
+        if not data_2025.empty:
+            # Filtrar las actividades por los tipos especificados
+            actividades_2025 = data_2025[
+                data_2025['Tipo de actividad'].str.lower().str.contains('instalación|reparación|postventa', na=False)
+            ].copy()
+
+            if not actividades_2025.empty:
+                año_2025 = 2025
+                cantidad_tecnicos_2025 = actividades_2025['Recurso'].nunique()
+
+                # Calcular la cantidad de actividades finalizadas
+                actividades_finalizadas_2025 = actividades_2025[
+                    actividades_2025['Estado de actividad'].str.lower() == 'finalizada'
+                ]['ID externo'].nunique()
+
+                # Calcular la cantidad de actividades no realizadas
+                actividades_no_realizadas_2025 = actividades_2025[
+                    actividades_2025['Estado de actividad'].str.lower() == 'no realizado'
+                ]['ID externo'].nunique()
+
+                # Calcular el total de actividades asignadas (finalizadas + no realizadas)
+                total_actividades_asignadas_2025 = actividades_finalizadas_2025 + actividades_no_realizadas_2025
+
+                resumen_2025 = pd.DataFrame({
+                    'Año': [año_2025],
+                    'Cantidad de Técnicos': [cantidad_tecnicos_2025],
+                    'Total Actividades Asignadas': [total_actividades_asignadas_2025],
+                    'Total Actividades Finalizadas': [actividades_finalizadas_2025]
+                })
+                st.dataframe(resumen_2025)
+            else:
+                st.info("No hay actividades de instalación, reparación o postventa para el año 2025.")
+        else:
+            st.info("No hay datos disponibles para el año 2025.")
     else:
         st.warning("Una o más de las columnas necesarias ('Fecha Agendamiento', 'Tipo de actividad', 'Estado de actividad', 'Recurso') no se encontraron en los datos.")
 
