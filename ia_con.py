@@ -10,7 +10,7 @@ openai_api_key = os.environ.get("OPENAI_API_KEY")
 st.title("Consultas inteligentes sobre técnicos")
 
 # Cargar archivo Excel
-df = pd.read_excel("CONSULTA_PY.xlsx", engine="openpyxl")
+df = pd.read_excel("CONSULTAS_PY.xlsx", engine="openpyxl")
 
 # Función para extraer latitud y longitud
 def extraer_lat_lon(coord):
@@ -79,7 +79,7 @@ user_input = st.text_input("Escribe tu consulta:")
 if user_input:
     with st.spinner("💡 Pensando..."):
 
-        muestra = df.head(50).to_csv(index=False)
+        muestra = df.to_csv(index=False)
 
         messages = [
             {
