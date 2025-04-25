@@ -3,25 +3,23 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# Conexión a la base de datos SQLite
-conn = sqlite3.connect("datos_actividades.db")
-cursor = conn.cursor()
-
-# --- Función para cargar los datos desde la base de datos --- 
-def cargar_datos_sqlite():
+# --- Función para cargar los datos desde la base de datos ---
+@st.cache_data
+def cargar_datos_sqlite(db_path="datos_actividades.db"):
     try:
-        query = """
-        SELECT * FROM actividades
-        """
-        df = pd.read_sql(query, conn)
-        if df.empty:
-            st.warning("No se encontraron datos en la base de datos.")
-        return df
+        with sqlite3.connect(db_path) as conn:
+            query = """
+            SELECT * FROM actividades
+            """
+            df = pd.read_sql(query, conn)
+            if df.empty:
+                st.warning("No se encontraron datos en la base de datos.")
+            return df
     except Exception as e:
         st.error(f"Error al cargar los datos de la base de datos: {e}")
         return None
 
-# --- Función para calcular y mostrar el gráfico de Mantención --- 
+# --- Función para calcular y mostrar el gráfico de Mantención ---
 def mostrar_grafico_mantencion():
     """
     Calcula y muestra un gráfico de barras verticales agrupadas para el resumen de Mantención.
@@ -73,7 +71,7 @@ def mostrar_grafico_mantencion():
 
     st.plotly_chart(fig)
 
-# --- Función para calcular y mostrar el gráfico de Provisión --- 
+# --- Función para calcular y mostrar el gráfico de Provisión ---
 def mostrar_grafico_provision():
     """
     Calcula y muestra un gráfico de barras verticales agrupadas para el resumen de Provisión.
