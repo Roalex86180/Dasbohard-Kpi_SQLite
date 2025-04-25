@@ -6,19 +6,12 @@ import verificacion_ubicacion
 import verificar_formato
 import plotly.express as px
 import resumen_general
+from Rt_Ft import analizar_reincidencias_y_fallas_tempranas
+import base64
+
 
 # Título del Dashboard
 #st.title("KPI RIELECOM SPA")
-
-# Carpeta que contiene los archivos de datos diarios
-carpeta_datos = "Data_diaria"
-patron_archivo = r"Actividades-(RIELECOM - RM|MultiSkill \(Rielecom-3Play-RM\))(_|-)\d{2}_\d{2}_\d{2}( \(\d+\))?\.xlsx"
-
-import streamlit as st
-import pandas as pd
-import os
-import re
-import verificar_formato  # Asegúrate de que este archivo exista y esté en el mismo directorio
 
 # Carpeta que contiene los archivos de datos diarios
 carpeta_datos = "Data_diaria"
@@ -63,10 +56,10 @@ def cargar_y_verificar_datos(carpeta, patron):
 data_combinada = cargar_y_verificar_datos(carpeta_datos, patron_archivo)
 
 if data_combinada is not None:
-    # ... (El resto de tu código para calcular etiquetas y mostrar el dashboard) ...
+
 
     # --- Cálculo de Total Finalizadas y Total Asignadas para las etiquetas ---
-    exclusiones = ['Almuerzos', 'Permiso', 'Reunion', 'Mantencion Vehicular', 'Curso', 'Levantamiento', 'Apoyo Terreno']
+    exclusiones = ['Almuerzo', 'Permiso', 'Reunion', 'Mantencion Vehicular', 'Curso', 'Levantamiento', 'Apoyo Terreno','Planta - Mantención']
 
     # Filtrar las actividades excluyendo los tipos especificados
     df_filtered = data_combinada[~data_combinada['Tipo de actividad'].str.lower().str.contains('|'.join(exclusiones).lower(), na=False)].copy()
@@ -134,16 +127,17 @@ if data_combinada is not None:
     unsafe_allow_html=True,
 )
     # --- Campo de Búsqueda de Cliente ---
+    st.markdown("---")
     st.subheader("Buscar Información de Cliente")
     termino_busqueda = st.text_input("Ingrese Nombre, RUT, ID Externo, Dirección, Ciudad, Comuna, Teléfono, Correo o Cod_Servicio:")
     columnas_a_buscar = ['Nombre Cliente', 'Rut Cliente', 'ID externo', 'Dirección', 'Ciudad', 'Comuna', 'Teléfono móvil', 'Correo electrónico', 'Cod_Servicio', 'Recurso']
-    columnas_a_mostrar = ['Fecha Agendamiento','Recurso','Nombre Cliente', 'Rut Cliente', 'ID externo', 'Acción realizada','Tipo Cierre','Motivo','SR de Siebel', 'Dirección', 'Ciudad', 'Comuna', 'Tipo de Vivienda','Teléfono móvil', 'Correo electrónico','Diagnóstico','Tipo de Servicio (TS1/TS2)', 'Producto/Plan contratado', 'Plan de internet', 'Nombre del bundle', 'Pack de canales premium','Cantidad routers','Cantidad de STB','Propietario de Red','AccessID']
+    columnas_a_mostrar = ['Fecha Agendamiento','Recurso','Nombre Cliente', 'Rut Cliente', 'ID externo', 'Tipo de actividad', 'Acción realizada','Tipo Cierre','Motivo','SR de Siebel', 'Dirección', 'Ciudad', 'Comuna', 'Tipo de Vivienda','Teléfono móvil', 'Correo electrónico','Diagnóstico','Tipo de Servicio (TS1/TS2)', 'Producto/Plan contratado', 'Plan de internet', 'Nombre del bundle', 'Pack de canales premium','Cantidad routers','Cantidad de STB','Propietario de Red','AccessID']
     
     if termino_busqueda:
         resultados_busqueda = pd.DataFrame()
         for columna in columnas_a_buscar:
             if columna in data_combinada.columns:
-                resultados = data_combinada[data_combinada[columna].astype(str).str.contains(termino_busqueda, case=False, na=False)]
+                resultados = data_combinada[data_combinada[columna].astype(str).str.contains(termino_busqueda, case=False, na=False, regex=False)]
                 resultados_busqueda = pd.concat([resultados_busqueda, resultados], ignore_index=True).drop_duplicates()
                 if not resultados_busqueda.empty:
                     break
@@ -157,34 +151,66 @@ if data_combinada is not None:
             st.info("No se encontraron resultados para la búsqueda.")
 
     # --- Ranking de Técnicos Más Productivos ----
-    st.subheader("Ranking de Técnicos Más Productivos (Finalizadas vs. Asignadas vs. % Efectividad)")
-    actividades_asignadas = data_combinada[~data_combinada['Tipo de actividad'].isin(['Almuerzo', 'Espera INC nueva', 'Retiro Equipos', 'Reunion', 'Levantamiento', 'FZ', 'Apoyo Terreno'])].copy()
-    total_asignadas_serie = actividades_asignadas['Recurso'].value_counts()
-    ranking_asignadas_df = pd.DataFrame({'Técnico': total_asignadas_serie.index, 'Total Asignadas': total_asignadas_serie.values})
-    
-    actividades_a_contar = data_combinada[~data_combinada['Tipo de actividad'].isin(['Almuerzo', 'Espera INC nueva', 'Retiro Equipos', 'Reunion', 'Levantamiento','Apoyo Terreno', 'FZ'])].copy()
-    actividades_finalizadas_tiempo = actividades_a_contar[actividades_a_contar['Estado de actividad'].str.lower() == 'finalizada'].copy()
-    productividad_ranking_serie = actividades_finalizadas_tiempo['Recurso'].value_counts()
-    productividad_ranking_df = pd.DataFrame({'Técnico': productividad_ranking_serie.index, 'Total Finalizadas': productividad_ranking_serie.values})
-    
-    productividad_final_df = pd.merge(productividad_ranking_df, ranking_asignadas_df, on='Técnico', how='left').fillna(0)
-    productividad_final_df['Porcentaje de Efectividad'] = (productividad_final_df['Total Finalizadas'] / productividad_final_df['Total Asignadas'] * 100).round(2).fillna(0).astype(str) + '%'
-    productividad_final_df = productividad_final_df.sort_values(by='Total Finalizadas', ascending=False).reset_index(drop=True)
-    productividad_final_df.index = productividad_final_df.index + 1
-    st.dataframe(productividad_final_df)
+    st.markdown("---")
+    st.subheader("Ranking Diario")
+
+# Selector de fecha para filtrar el ranking
+fecha_seleccionada = st.date_input("Filtrar ranking por fecha", value=None)
+
+# Filtrar el DataFrame data_combinada basado en la fecha seleccionada
+if fecha_seleccionada:
+    data_filtrada = data_combinada[data_combinada['Fecha Agendamiento'] == pd.to_datetime(fecha_seleccionada)].copy()
+else:
+    data_filtrada = data_combinada.copy()
+
+# Asegúrate de que la columna 'Fecha Agendamiento' esté en formato datetime de Pandas
+data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y')
+
+st.subheader("Ranking de Técnicos Más Productivos (Finalizadas vs. Asignadas)")
+
+# Filtrar el DataFrame data_combinada basado en la fecha seleccionada
+if fecha_seleccionada:
+    data_filtrada = data_combinada[data_combinada['Fecha Agendamiento'].dt.date == fecha_seleccionada].copy()
+else:
+    data_filtrada = data_combinada.copy()
+
+# --- Ranking de Técnicos Más Productivos (con filtro de fecha aplicado) ----
+actividades_asignadas = data_filtrada[~data_filtrada['Tipo de actividad'].isin(['Almuerzo', 'Espera INC nueva', 'Retiro Equipos', 'Reunion', 'Levantamiento', 'FZ', 'Apoyo Terreno','Planta - Mantención', 'Planta - Medición', 'Planta - Provisión', 'Incidencia Manual'])].copy()
+total_asignadas_serie = actividades_asignadas['Recurso'].value_counts()
+ranking_asignadas_df = pd.DataFrame({'Técnico': total_asignadas_serie.index, 'Total Asignadas': total_asignadas_serie.values})
+
+actividades_a_contar = data_filtrada[~data_filtrada['Tipo de actividad'].isin(['Almuerzo', 'Espera INC nueva', 'Retiro Equipos', 'Reunion', 'Levantamiento','Apoyo Terreno', 'FZ','Planta - Mantención', 'Planta - Medición', 'Planta - Provisión', 'Incidencia Manual'])].copy()
+actividades_finalizadas_tiempo = actividades_a_contar[actividades_a_contar['Estado de actividad'].str.lower() == 'finalizada'].copy()
+productividad_ranking_serie = actividades_finalizadas_tiempo['Recurso'].value_counts()
+productividad_ranking_df = pd.DataFrame({'Técnico': productividad_ranking_serie.index, 'Total Finalizadas': productividad_ranking_serie.values})
+
+productividad_final_df = pd.merge(productividad_ranking_df, ranking_asignadas_df, on='Técnico', how='left').fillna(0)
+productividad_final_df['Porcentaje de Efectividad'] = (productividad_final_df['Total Finalizadas'] / productividad_final_df['Total Asignadas'] * 100).round(2).fillna(0).astype(str) + '%'
+productividad_final_df = productividad_final_df.sort_values(by='Total Finalizadas', ascending=False).reset_index(drop=True)
+productividad_final_df.index = productividad_final_df.index + 1
+
+# Mostrar la tabla del ranking
+st.dataframe(productividad_final_df)
+
+if fecha_seleccionada and productividad_final_df.empty:
+    st.info(f"No hay datos de actividades para la fecha: {fecha_seleccionada.strftime('%Y-%m-%d')}")
+elif not fecha_seleccionada:
+    st.info("Mostrando el ranking completo (sin filtro de fecha).")
 
     # --- Técnicos que mencionan U2000 ---
+    st.markdown("---")
     st.subheader("Técnicos que Realizan U2000")
     u2000_mentions = data_combinada[data_combinada['Observación'].str.contains(r'u\s?2000|u\s?200|u200', flags=re.IGNORECASE, na=False)].copy()
     if not u2000_mentions.empty:
         u2000_ranking_serie = u2000_mentions['Recurso'].value_counts()
-        u2000_ranking_df = pd.DataFrame({'Técnico': u2000_ranking_serie.index, 'Menciones U2000': u2000_ranking_serie.values})
+        u2000_ranking_df = pd.DataFrame({'Técnico': u2000_ranking_serie.index, 'Cantidad U2000': u2000_ranking_serie.values})
         u2000_ranking_df.index = u2000_ranking_df.index + 1
         st.dataframe(u2000_ranking_df)
     else:
         st.info("Ningún técnico ha mencionado 'u2000' en las observaciones.")
 
     # --- Ranking de Técnicos Más Rápidos (Tiempo Promedio) ---
+    st.markdown("---")
     st.subheader("Ranking de Técnicos Más Rápidos (Tiempo Promedio por Trabajo Finalizado en Horas)")
 
     @st.cache_data
@@ -249,7 +275,9 @@ if data_combinada is not None:
     else:
         st.info("No hay suficientes actividades finalizadas de instalación, reparación o postventa con tiempos válidos para calcular el ranking de tiempo promedio.")
 
-    # --- Gráfico de Torta: Causa de la falla ---
+        
+        # --- Gráfico de Torta: Causa de la falla ---
+    st.markdown("---")
     st.subheader("Distribución de Causas de la falla")
     columna_causa_falla = 'Causa de la falla'
     grafico_placeholder = st.empty()
@@ -263,12 +291,16 @@ if data_combinada is not None:
             grafico_placeholder.warning("No hay datos para mostrar.")
     else:
         grafico_placeholder.warning(f"La columna '{columna_causa_falla}' no se encontró en los datos.")
+        
+    # --- Sección Reincidencias y fallas tempranas ---
+    analizar_reincidencias_y_fallas_tempranas(data_combinada)
 
     # --- Sección de Verificación de Ubicación ---
-    st.subheader("Verificación de Ubicación")
+    st.markdown("---")
     verificacion_ubicacion.mostrar_verificacion_ubicacion(data_combinada.copy())
 
     # --- Nuevo KPI: Ranking de Técnicos WIFI-Design ---
+    st.markdown("---")
     st.subheader("Ranking de Técnicos WIFI-Design")
     if 'Documento' in data_combinada.columns and 'Cod_Servicio' in data_combinada.columns and 'Recurso' in data_combinada.columns:
         wifi_design_df = data_combinada[
@@ -333,6 +365,7 @@ if data_combinada is not None:
         st.warning("Las columnas 'Documento', 'Cod_Servicio' o 'Recurso' no se encontraron en los datos.")
 
     # --- Gráfico de Barras: Distribución de Trabajos por Comuna y Categoría de Actividad ---
+    st.markdown("---")
     st.subheader("Distribución de Trabajos por Comuna y Categoría de Actividad")
 
     if 'Comuna' in data_combinada.columns and 'Tipo de actividad' in data_combinada.columns:
@@ -387,7 +420,8 @@ if data_combinada is not None:
         st.warning("Las columnas 'Comuna' o 'Tipo de actividad' no se encontraron en los datos.")
 
     # --- Ranking de Comunas por Trabajos Finalizados con Totales y Efectividad (Lógica Específica para SIN ZONA) ---
-    st.subheader("Ranking de Comunas por Trabajos Finalizados con Totales y Efectividad (Lógica Específica para SIN ZONA)")
+    st.markdown("---")
+    st.subheader("Ranking de Comunas Trabajos Finalizados)")
 
     actividades_a_excluir = ['retiro equipos', 'levantamiento', 'curso', 'almuerzo', 'apoyo terreno', 'reunion', 'mantencion vehicular']
 
@@ -446,7 +480,8 @@ if data_combinada is not None:
         st.warning("Las columnas necesarias ('Comuna', 'Estado de actividad', 'Tipo de actividad') no se encontraron en los datos.")
 
     # --- Ranking de Comunas por Trabajos de Instalación y Postventa (Excluyendo Actividades No Operativas) ---
-    st.subheader("Ranking de Comunas por Trabajos de Instalación y Postventa (Excluyendo Actividades No Operativas)")
+    st.markdown("---")
+    st.subheader("Ranking de Comunas Provision + Postventas)")
 
     actividades_a_excluir = ['retiro equipos', 'levantamiento', 'curso', 'almuerzo', 'apoyo terreno', 'reunion', 'mantencion vehicular']
 
@@ -477,7 +512,8 @@ if data_combinada is not None:
             st.info("No hay trabajos de Instalación o Postventa (excluyendo actividades no operativas) para mostrar en el ranking.")
 
         # --- Ranking de Comunas por Trabajos de Reparación (Excluyendo Actividades No Operativas) ---
-        st.subheader("Ranking de Comunas por Trabajos de Reparación (Excluyendo Actividades No Operativas)")
+        st.markdown("---")
+        st.subheader("Ranking de Comunas Mantencion")
 
         # Filtrar trabajos de reparación excluyendo actividades no operativas
         reparacion_filtrado = data_combinada[
@@ -507,6 +543,7 @@ if data_combinada is not None:
         st.warning("Las columnas necesarias ('Comuna', 'Estado de actividad', 'Tipo de actividad') no se encontraron en los datos.")
 
     # --- Resumen de Actividades Año 2023 ---
+    st.markdown("---")
     st.subheader("Resumen de Actividades Año 2023 (Instalación + Reparación + Postventa)")
     if 'Fecha Agendamiento' in data_combinada.columns and 'Tipo de actividad' in data_combinada.columns and 'Estado de actividad' in data_combinada.columns and 'Recurso' in data_combinada.columns:
         data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], errors='coerce')
@@ -590,6 +627,7 @@ if data_combinada is not None:
     else:
         st.warning("Una o más de las columnas necesarias ('Fecha Agendamiento', 'Tipo de actividad', 'Estado de actividad', 'Recurso') no se encontraron en los datos.")
 
+        #--Resumen año 2025
         st.subheader("Resumen de Actividades Año 2025 (Instalación + Reparación + Postventa)")
     if 'Fecha Agendamiento' in data_combinada.columns and 'Tipo de actividad' in data_combinada.columns and 'Estado de actividad' in data_combinada.columns and 'Recurso' in data_combinada.columns:
         data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], errors='coerce')
@@ -632,6 +670,27 @@ if data_combinada is not None:
         st.warning("Una o más de las columnas necesarias ('Fecha Agendamiento', 'Tipo de actividad', 'Estado de actividad', 'Recurso') no se encontraron en los datos.")
 
     # --- Gráficos de Mantención y Provisión ---
+    st.markdown("---")
     st.subheader("Resumen de Actividades de Mantención y Provisión")
     resumen_general.mostrar_grafico_mantencion(data_combinada)
     resumen_general.mostrar_grafico_provision(data_combinada)
+
+
+
+# Ruta del archivo GIF
+gif_path = r"C:\Users\Roger\Downloads\consultas_excel\Robertito_opt.gif"
+
+# Leer el archivo GIF en binario y codificarlo en base64
+with open(gif_path, "rb") as f:
+    gif_bytes = f.read()
+    encoded_gif = base64.b64encode(gif_bytes).decode("utf-8")
+
+# Mostrar el GIF en la esquina superior izquierda
+st.markdown(
+    f"""
+    <div style="position: fixed; top: 10px; left: 10px; z-index: 999;">
+        <img src="data:image/gif;base64,{encoded_gif}" width="120">
+    </div>
+    """,
+    unsafe_allow_html=True
+)
