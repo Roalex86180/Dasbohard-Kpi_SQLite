@@ -678,7 +678,7 @@ elif not fecha_seleccionada:
 
 
 # Ruta del archivo GIF
-gif_path = r"C:\Users\Roger\Downloads\consultas_excel\Robertito_opt.gif"
+gif_path = "Robertito_opt.gif"
 
 # Leer el archivo GIF en binario y codificarlo en base64
 with open(gif_path, "rb") as f:
