@@ -16,12 +16,9 @@ carpeta_datos = "Data_diaria"
 patron_archivo = r"Actividades-(RIELECOM - RM|MultiSkill \(Rielecom-3Play-RM\))(_|-)\d{2}_\d{2}_\d{2}( \(\d+\))?\.((xlsx)|(csv))"
 db_path = "datos_actividades.db"
 
-
 # --- FUNCIONES PARA SQLITE ---
 @st.cache_data
 def cargar_datos_en_sqlite(carpeta, patron, db_path='datos_actividades.db'):
-    # Modificación aquí: uso de check_same_thread=False
-    conn = sqlite3.connect(db_path, check_same_thread=False)
     all_data = []
     try:
         for nombre_archivo in os.listdir(carpeta):
@@ -47,24 +44,21 @@ def cargar_datos_en_sqlite(carpeta, patron, db_path='datos_actividades.db'):
 
         if all_data:
             combined_df = pd.concat(all_data, ignore_index=True)
-            combined_df.to_sql('actividades', conn, if_exists='replace', index=False)
-            conn.close()
+            # Crear una nueva conexión dentro de la función
+            with sqlite3.connect(db_path) as conn:
+                combined_df.to_sql('actividades', conn, if_exists='replace', index=False)
             return True
         else:
-            conn.close()
             return False
     except Exception as e:
         st.error(f"Error general: {e}")
-        conn.close()
         return False
-
 
 @st.cache_data
 def obtener_datos_desde_sqlite(db_path='datos_actividades.db'):
-    # Modificación aquí: uso de check_same_thread=False
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    df = pd.read_sql_query("SELECT * FROM actividades", conn)
-    conn.close()
+    # Crear una nueva conexión dentro de la función
+    with sqlite3.connect(db_path) as conn:
+        df = pd.read_sql_query("SELECT * FROM actividades", conn)
     return df
 
 
