@@ -20,7 +20,8 @@ db_path = "datos_actividades.db"
 # --- FUNCIONES PARA SQLITE ---
 @st.cache_data
 def cargar_datos_en_sqlite(carpeta, patron, db_path='datos_actividades.db'):
-    conn = sqlite3.connect(db_path)
+    # Modificación aquí: uso de check_same_thread=False
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     all_data = []
     try:
         for nombre_archivo in os.listdir(carpeta):
@@ -57,9 +58,11 @@ def cargar_datos_en_sqlite(carpeta, patron, db_path='datos_actividades.db'):
         conn.close()
         return False
 
+
 @st.cache_data
 def obtener_datos_desde_sqlite(db_path='datos_actividades.db'):
-    conn = sqlite3.connect(db_path)
+    # Modificación aquí: uso de check_same_thread=False
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     df = pd.read_sql_query("SELECT * FROM actividades", conn)
     conn.close()
     return df
@@ -484,7 +487,7 @@ elif not fecha_seleccionada:
 
         # --- Ranking de Comunas por Trabajos Finalizados con Totales y Efectividad ---
     st.markdown("---")
-    st.subheader("Ranking de Comunas Trabajos Multiskill Finalizados")
+    st.subheader("Ranking de Comunas Trabajos Finalizados")
 
     actividades_a_excluir = ['retiro equipos', 'levantamiento', 'curso', 'almuerzo', 'apoyo terreno', 'reunion', 'mantencion vehicular']
 
