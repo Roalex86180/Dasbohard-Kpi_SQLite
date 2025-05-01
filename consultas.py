@@ -419,9 +419,9 @@ elif not fecha_seleccionada:
     else:
         st.warning("Las columnas 'Comuna' o 'Tipo de actividad' no se encontraron en los datos.")
 
-    # --- Ranking de Comunas por Trabajos Finalizados con Totales y Efectividad (Lógica Específica para SIN ZONA) ---
+    # --- Ranking de Comunas por Trabajos Finalizados con Totales y Efectividad---
     st.markdown("---")
-    st.subheader("Ranking de Comunas Trabajos Finalizados)")
+    st.subheader("Ranking de Comunas Trabajos Multiskill Finalizados)")
 
     actividades_a_excluir = ['retiro equipos', 'levantamiento', 'curso', 'almuerzo', 'apoyo terreno', 'reunion', 'mantencion vehicular']
 
@@ -479,7 +479,7 @@ elif not fecha_seleccionada:
     else:
         st.warning("Las columnas necesarias ('Comuna', 'Estado de actividad', 'Tipo de actividad') no se encontraron en los datos.")
 
-    # --- Ranking de Comunas por Trabajos de Instalación y Postventa (Excluyendo Actividades No Operativas) ---
+    # --- Ranking de Comunas por Trabajos de Instalación y Postventa ---
     st.markdown("---")
     st.subheader("Ranking de Comunas Provision + Postventas)")
 

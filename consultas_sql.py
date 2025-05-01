@@ -10,6 +10,7 @@ import resumen_general_sql
 from Rt_Ft_Sql import analizar_reincidencias_y_fallas_tempranas
 import base64
 
+st.set_page_config(layout="wide")
 
 # --- PARÁMETROS ---
 carpeta_datos = "Data_diaria"
@@ -137,7 +138,7 @@ if data_combinada is not None:
     st.subheader("Buscar Información de Cliente")
     termino_busqueda = st.text_input("Ingrese Nombre, RUT, ID Externo, Dirección, Ciudad, Comuna, Teléfono, Correo o Cod_Servicio:")
     columnas_a_buscar = ['Nombre Cliente', 'Rut Cliente', 'ID externo', 'Dirección', 'Ciudad', 'Comuna', 'Teléfono móvil', 'Correo electrónico', 'Cod_Servicio', 'Recurso']
-    columnas_a_mostrar = ['Fecha Agendamiento','Recurso','Nombre Cliente', 'Rut Cliente', 'ID externo', 'Tipo de actividad', 'Acción realizada','Tipo Cierre','Motivo','SR de Siebel', 'Dirección', 'Ciudad', 'Comuna', 'Tipo de Vivienda','Teléfono móvil', 'Correo electrónico','Diagnóstico','Tipo de Servicio (TS1/TS2)', 'Producto/Plan contratado', 'Plan de internet', 'Nombre del bundle', 'Pack de canales premium','Cantidad routers','Cantidad de STB','Propietario de Red','AccessID']
+    columnas_a_mostrar = ['Fecha Agendamiento','Recurso', 'ID externo','Nombre Cliente', 'Rut Cliente', 'Tipo de actividad','Observación' ,'Acción realizada','Tipo Cierre','Motivo','SR de Siebel', 'Dirección', 'Ciudad', 'Comuna', 'Tipo de Vivienda','Teléfono móvil', 'Correo electrónico','Diagnóstico','Tipo de Servicio (TS1/TS2)', 'Producto/Plan contratado', 'Plan de internet', 'Nombre del bundle', 'Pack de canales premium','Cantidad routers','Cantidad de STB','Propietario de Red','AccessID']
 
     if termino_busqueda:
         resultados_busqueda = pd.DataFrame()
@@ -293,7 +294,8 @@ elif not fecha_seleccionada:
     else:
         st.info("No hay suficientes actividades finalizadas de instalación, reparación o postventa con tiempos válidos para calcular el ranking de tiempo promedio.")
 
-    # --- Gráfico de Torta: Causa de la falla ---
+
+        # --- Gráfico de Torta: Causa de la falla ---
     st.markdown("---")
     st.subheader("Distribución de Causas de la Falla")
 
@@ -302,7 +304,17 @@ elif not fecha_seleccionada:
 
     if columna_causa_falla in data_combinada.columns:
         # Eliminar valores nulos y contar ocurrencias
-        causa_falla_counts = data_combinada[columna_causa_falla].dropna().value_counts().reset_index()
+        causa_falla_counts_total = data_combinada[columna_causa_falla].dropna().value_counts()
+        
+        # Separar top 10 causas
+        top_10 = causa_falla_counts_total.head(10)
+        otras = causa_falla_counts_total[10:]
+        
+        # Crear DataFrame con "Otras" sumadas
+        causa_falla_counts = top_10.copy()
+        if not otras.empty:
+            causa_falla_counts["Otras"] = otras.sum()
+        causa_falla_counts = causa_falla_counts.reset_index()
         causa_falla_counts.columns = ['Causa', 'Cantidad']
 
         if not causa_falla_counts.empty:
@@ -310,8 +322,8 @@ elif not fecha_seleccionada:
                 causa_falla_counts,
                 names='Causa',
                 values='Cantidad',
-                title='Porcentaje de Causas de la Falla',
-                hole=0.3  # para dar estilo tipo "dona"
+                title='Distribución de Causas de la Falla (Top 10 + Otras)',
+                hole=0.3
             )
             fig_causa_falla.update_traces(textinfo='percent+label')
             grafico_placeholder.plotly_chart(fig_causa_falla)
@@ -336,80 +348,79 @@ elif not fecha_seleccionada:
     st.markdown("---")
     st.subheader("Ranking de Técnicos WIFI-Design")
 
-    # Consulta general (sin filtro SQL estricto) y filtro con regex en Pandas
-    query_wifi_design = """
-    SELECT Recurso, Documento, Cod_Servicio, "ID externo", "Fecha Agendamiento", "Propietario de Red", Dirección
+    # Leer los datos desde la tabla 'actividades'
+    query = """
+    SELECT Recurso, Documento, Cod_Servicio, "ID externo", "Fecha Agendamiento", 
+        "Propietario de Red", Dirección
     FROM actividades;
     """
-    wifi_design_df = pd.read_sql(query_wifi_design, conn)
+    df = pd.read_sql(query, conn)
 
-    # Aplicar el mismo patrón que en el código antiguo
-    wifi_design_df = wifi_design_df[
-        wifi_design_df['Documento'].astype(str).str.match(r'^CS_\d+\.pdf', case=False)
-    ].copy()
+    # Verifica que las columnas existen
+    if 'Documento' in df.columns and 'Cod_Servicio' in df.columns and 'Recurso' in df.columns:
 
-    # Contar la cantidad de WIFI-Design por técnico
-    wifi_design_counts = wifi_design_df.groupby('Recurso')['Documento'].count().reset_index()
-    wifi_design_counts.columns = ['Técnico', 'Cantidad WIFI-Design']
+        # Filtrar los que cumplen con el patrón de WIFI-Design
+        wifi_design_df = df[
+            df['Documento'].astype(str).str.match(r'^CS_\d+\.pdf', case=False)
+        ].copy()
 
-    # Contar la cantidad total de trabajos asignados por técnico
-    query_trabajos = """
-    SELECT Recurso, "ID externo"
-    FROM actividades;
-    """
-    trabajos_df = pd.read_sql(query_trabajos, conn)
-    trabajos_asignados = trabajos_df.groupby('Recurso')["ID externo"].nunique().reset_index()
-    trabajos_asignados.columns = ['Técnico', 'Trabajos Asignados']
+        # Contar cantidad de WIFI-Design por técnico
+        wifi_design_counts = wifi_design_df.groupby('Recurso')['Documento'].count().reset_index()
+        wifi_design_counts.columns = ['Técnico', 'Cantidad WIFI-Design']
 
-    # Combinar ambos
-    ranking_wifi_design = pd.merge(wifi_design_counts, trabajos_asignados, on='Técnico', how='left').fillna(0)
+        # Total de trabajos por técnico
+        trabajos_asignados = df.groupby('Recurso')['ID externo'].nunique().reset_index()
+        trabajos_asignados.columns = ['Técnico', 'Trabajos Asignados']
 
-    # Calcular porcentaje
-    ranking_wifi_design['% Cumplimiento'] = (
-        (ranking_wifi_design['Cantidad WIFI-Design'] / ranking_wifi_design['Trabajos Asignados']) * 100
-    ).round(2).astype(str) + '%'
+        # Combinar y calcular porcentaje
+        ranking_wifi_design = pd.merge(wifi_design_counts, trabajos_asignados, on='Técnico', how='left').fillna(0)
+        ranking_wifi_design['% Cumplimiento'] = (
+            (ranking_wifi_design['Cantidad WIFI-Design'] / ranking_wifi_design['Trabajos Asignados']) * 100
+        ).round(2).astype(str) + '%'
 
-    # Ordenar y mostrar
-    ranking_wifi_design = ranking_wifi_design.sort_values(by='Cantidad WIFI-Design', ascending=False).reset_index(drop=True)
-    ranking_wifi_design.index = ranking_wifi_design.index + 1
-    st.dataframe(ranking_wifi_design)
+        # Ordenar
+        ranking_wifi_design = ranking_wifi_design.sort_values(by='Cantidad WIFI-Design', ascending=False).reset_index(drop=True)
+        ranking_wifi_design.index += 1
+        st.dataframe(ranking_wifi_design)
 
-    # --- Detalle por Técnico ---
-    st.subheader("Detalle de Trabajos WIFI-Design por Técnico")
-    tecnicos_wifi_design = ranking_wifi_design['Técnico'].unique()
-    opciones_tecnicos = ["Seleccione", "Todos"] + list(tecnicos_wifi_design)
-    tecnico_seleccionado_wifi = st.selectbox("Seleccionar Técnico", opciones_tecnicos)
+        # --- Detalle por Técnico ---
+        st.subheader("Detalle de Trabajos WIFI-Design por Técnico")
+        tecnicos_wifi_design = ranking_wifi_design['Técnico'].unique()
+        opciones_tecnicos = ["Seleccione", "Todos"] + list(tecnicos_wifi_design)
+        tecnico_seleccionado_wifi = st.selectbox("Seleccionar Técnico", opciones_tecnicos)
 
-    columnas_base_detalle = ['Fecha Agendamiento', 'ID externo', 'Cod_Servicio', 'Propietario de Red', 'Dirección', 'Documento', 'Recurso']
-    columnas_detalle_final = ['Fecha Agendamiento', 'ID externo', 'Cod_Servicio', 'WIFI-Design', 'Propietario de Red', 'Dirección', 'Técnico']
+        columnas_base_detalle = ['Fecha Agendamiento', 'ID externo', 'Cod_Servicio', 'Propietario de Red', 'Dirección', 'Documento', 'Recurso']
+        columnas_detalle_final = ['Fecha Agendamiento', 'ID externo', 'Cod_Servicio', 'WIFI-Design', 'Propietario de Red', 'Dirección', 'Técnico']
 
-    def determinar_wifi_design(row):
-        if pd.notna(row['Cod_Servicio']) or pd.notna(row['ID externo']):
-            if pd.notna(row['Documento']) and re.match(r'^CS_\d+\.pdf', str(row['Documento']), re.IGNORECASE):
-                return 'SI'
+        def determinar_wifi_design(row):
+            if pd.notna(row['Cod_Servicio']) or pd.notna(row['ID externo']):
+                if pd.notna(row['Documento']) and re.match(r'^CS_\d+\.pdf', str(row['Documento']), re.IGNORECASE):
+                    return 'SI'
+                else:
+                    return 'NO'
             else:
-                return 'NO'
-        else:
-            return 'Sin Datos'
+                return 'Sin Datos'
 
-    if tecnico_seleccionado_wifi == "Todos":
-        detalle_todos = wifi_design_df[columnas_base_detalle].copy()
-        detalle_todos['WIFI-Design'] = detalle_todos.apply(determinar_wifi_design, axis=1)
-        detalle_todos['Técnico'] = detalle_todos['Recurso']
-        detalle_filtrado = detalle_todos[detalle_todos['WIFI-Design'] != 'Sin Datos'][columnas_detalle_final]
-        if not detalle_filtrado.empty:
-            st.dataframe(detalle_filtrado)
-        else:
-            st.info("No hay detalles de WIFI-Design para mostrar.")
-    elif tecnico_seleccionado_wifi != "Seleccione" and tecnico_seleccionado_wifi:
-        detalle_tecnico = wifi_design_df[wifi_design_df['Recurso'] == tecnico_seleccionado_wifi][columnas_base_detalle].copy()
-        detalle_tecnico['WIFI-Design'] = detalle_tecnico.apply(determinar_wifi_design, axis=1)
-        detalle_tecnico['Técnico'] = detalle_tecnico['Recurso']
-        detalle_filtrado_tecnico = detalle_tecnico[detalle_tecnico['WIFI-Design'] != 'Sin Datos'][columnas_detalle_final]
-        if not detalle_filtrado_tecnico.empty:
-            st.dataframe(detalle_filtrado_tecnico)
-        else:
-            st.info(f"No hay detalles de WIFI-Design para el técnico '{tecnico_seleccionado_wifi}'.")
+        if tecnico_seleccionado_wifi == "Todos":
+            detalle_todos = df[columnas_base_detalle].copy()
+            detalle_todos['WIFI-Design'] = detalle_todos.apply(determinar_wifi_design, axis=1)
+            detalle_todos['Técnico'] = detalle_todos['Recurso']
+            detalle_filtrado_sin_datos = detalle_todos[detalle_todos['WIFI-Design'] != 'Sin Datos'][columnas_detalle_final]
+            if not detalle_filtrado_sin_datos.empty:
+                st.dataframe(detalle_filtrado_sin_datos)
+            else:
+                st.info("No hay detalles de WIFI-Design para mostrar.")
+        elif tecnico_seleccionado_wifi != "Seleccione":
+            detalle_tecnico = df[df['Recurso'] == tecnico_seleccionado_wifi][columnas_base_detalle].copy()
+            detalle_tecnico['WIFI-Design'] = detalle_tecnico.apply(determinar_wifi_design, axis=1)
+            detalle_tecnico['Técnico'] = detalle_tecnico['Recurso']
+            detalle_filtrado_tecnico = detalle_tecnico[detalle_tecnico['WIFI-Design'] != 'Sin Datos'][columnas_detalle_final]
+            if not detalle_filtrado_tecnico.empty:
+                st.dataframe(detalle_filtrado_tecnico)
+            else:
+                st.info(f"No hay detalles de WIFI-Design para el técnico '{tecnico_seleccionado_wifi}'.")
+    else:
+        st.warning("Las columnas 'Documento', 'Cod_Servicio' o 'Recurso' no se encontraron en los datos.")
 
         
         # --- Gráfico de Barras: Distribución de Trabajos por Comuna y Categoría de Actividad desde SQLite ---
@@ -481,7 +492,7 @@ elif not fecha_seleccionada:
 
         # --- Ranking de Comunas por Trabajos Finalizados con Totales y Efectividad ---
     st.markdown("---")
-    st.subheader("Ranking de Comunas Trabajos Finalizados")
+    st.subheader("Ranking de Comunas Trabajos Multiskill Finalizados")
 
     actividades_a_excluir = ['retiro equipos', 'levantamiento', 'curso', 'almuerzo', 'apoyo terreno', 'reunion', 'mantencion vehicular']
 
@@ -735,24 +746,26 @@ elif not fecha_seleccionada:
     resumen_general_sql.mostrar_grafico_mantencion()
     resumen_general_sql.mostrar_grafico_provision()
 
+        # Ruta del archivo GIF
+    gif_path = "Robertito_opt.gif"
 
-   # Ruta del archivo GIF
-gif_path = "Robertito_opt.gif"
+    # Leer el archivo GIF en binario y codificarlo en base64
+    with open(gif_path, "rb") as f:
+        gif_bytes = f.read()
+        encoded_gif = base64.b64encode(gif_bytes).decode("utf-8")
 
-# Leer el archivo GIF en binario y codificarlo en base64
-with open(gif_path, "rb") as f:
-    gif_bytes = f.read()
-    encoded_gif = base64.b64encode(gif_bytes).decode("utf-8")
+    # Mostrar el GIF en la esquina superior izquierda
+    st.markdown(
+        f"""
+        <div style="position: absolute; top: 10px; left: 10px; z-index: 999;">
+            <img src="data:image/gif;base64,{encoded_gif}" width="120">
+        </div>
+        """,
+        unsafe_allow_html=True
+    ) 
 
-# Mostrar el GIF en la esquina superior izquierda
-st.markdown(
-    f"""
-    <div style="position: fixed; top: 10px; left: 10px; z-index: 999;">
-        <img src="data:image/gif;base64,{encoded_gif}" width="120">
-    </div>
-    """,
-    unsafe_allow_html=True
-) 
+
+    
 
 
 
