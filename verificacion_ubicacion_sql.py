@@ -46,7 +46,8 @@ def mostrar_verificacion_ubicacion_sql(conn):
             [Coordenadas Inicio], 
             [Coordenadas Fin], 
             [Coordenada Y], 
-            [Coordenada X]
+            [Coordenada X],
+            [Fecha Agendamiento]
         FROM actividades
         WHERE [Recurso] IS NOT NULL 
             AND [ID externo] IS NOT NULL 
@@ -56,6 +57,16 @@ def mostrar_verificacion_ubicacion_sql(conn):
             AND [Coordenada X] IS NOT NULL
         """
         data = pd.read_sql_query(query, conn)
+
+        data['Fecha Agendamiento'] = pd.to_datetime(data['Fecha Agendamiento'], errors='coerce')
+
+        # Selector de mes
+        meses_unicos = data['Fecha Agendamiento'].dropna().dt.strftime('%Y-%m').sort_values().unique().tolist()
+        meses_opciones = [""] + meses_unicos
+        mes_seleccionado = st.selectbox("Filtrar por mes (formato AAAA-MM):", meses_opciones, key="selector_mes_ubicacion")
+
+        if mes_seleccionado:
+            data = data[data['Fecha Agendamiento'].dt.strftime('%Y-%m') == mes_seleccionado]
 
         data['Inicio en Cliente'] = 'no ingreso coordenadas'
         data['Cierre en Cliente'] = 'no ingreso coordenadas'
@@ -129,12 +140,12 @@ def mostrar_verificacion_ubicacion_sql(conn):
         st.dataframe(styled)
 
         tecnicos = [""] + resultados_final['Recurso'].tolist()
-        tecnico_seleccionado = st.selectbox("Seleccionar Técnico para ver detalles:", tecnicos)
+        tecnico_seleccionado = st.selectbox("Seleccionar Técnico para ver detalles:", tecnicos, key="selector_tecnico")
 
         if tecnico_seleccionado:
             st.subheader(f"Detalles para {tecnico_seleccionado}")
             detalles = data[data['Recurso'].str.strip().str.lower() == tecnico_seleccionado.strip().lower()]
-            st.dataframe(detalles[[
+            st.dataframe(detalles[[ 
                 'ID externo', 'Dirección', 'Comuna',
                 'Inicio en Cliente', 'Cierre en Cliente',
                 'Coordenadas Inicio', 'Coordenadas Fin',
@@ -146,3 +157,4 @@ def mostrar_verificacion_ubicacion_sql(conn):
 
     except Exception as e:
         st.error(f"Error en verificación de ubicación: {e}")
+

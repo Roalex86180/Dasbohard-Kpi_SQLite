@@ -9,6 +9,8 @@ import plotly.express as px
 import resumen_general_sql
 from Rt_Ft_Sql import analizar_reincidencias_y_fallas_tempranas
 import base64
+import plotly.graph_objects as go
+import io
 
 st.set_page_config(layout="wide")
 
@@ -65,7 +67,7 @@ def obtener_datos_desde_sqlite(db_path='datos_actividades.db'):
 
 # --- CARGAR O CONSULTAR LOS DATOS ---
 # Solo ejecutar esta línea si necesitas regenerar la base desde los archivos
-cargar_datos_en_sqlite(carpeta_datos, patron_archivo)
+#cargar_datos_en_sqlite(carpeta_datos, patron_archivo)
 
 data_combinada = obtener_datos_desde_sqlite(db_path)
 
@@ -157,180 +159,528 @@ if data_combinada is not None:
         else:
             st.info("No se encontraron resultados para la búsqueda.")
 
-    # --- Ranking de Técnicos Más Productivos ----
-st.markdown("---")
-st.subheader("Ranking Diario")
+           # --- Ranking de Técnicos Más Productivos ----
+        st.markdown("---")
+    st.subheader("Ranking Diario")
 
-# Asegúrate de que la columna 'Fecha Agendamiento' esté en formato datetime
-data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y', errors='coerce')
+    # Asegúrate de que la columna 'Fecha Agendamiento' esté en formato datetime
+    data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y', errors='coerce')
 
-# Selector de fecha
-fecha_seleccionada = st.date_input("Filtrar ranking por fecha", value=None)
+    # Selector de fecha
+    fecha_seleccionada = st.date_input("Filtrar ranking por fecha", value=None)
 
-# Filtrar datos por fecha
-if fecha_seleccionada:
-    data_filtrada = data_combinada[data_combinada['Fecha Agendamiento'].dt.date == fecha_seleccionada].copy()
-else:
-    data_filtrada = data_combinada.copy()
+    # Filtrar datos por fecha
+    if fecha_seleccionada:
+        data_filtrada = data_combinada[data_combinada['Fecha Agendamiento'].dt.date == fecha_seleccionada].copy()
+    else:
+        data_filtrada = data_combinada.copy()
 
-st.subheader("Ranking de Técnicos Más Productivos (Finalizadas vs. Asignadas)")
+    st.subheader("Ranking de Técnicos Multiskill")
 
-# Actividades válidas para el conteo
-excluir_actividades = [
-    'Almuerzo', 'Espera INC nueva', 'Retiro Equipos', 'Reunion', 'Levantamiento',
-    'FZ', 'Apoyo Terreno', 'Planta - Mantención', 'Planta - Medición',
-    'Planta - Provisión', 'Incidencia Manual'
-]
+    # Actividades a excluir
+    excluir_actividades = [
+        'Almuerzo', 'Espera INC nueva', 'Reunión', 'Reunion', 'Reparación CPE (Router, ONT, Modem)', 'Retiro Equipos', 'Levantamiento', 'Permiso Administrativo', 'Reparación Acceso Cobre', 
+        'Mantención Vehicular', 'Apoyo Terreno', 'Inventario', 'Curso', 'Atención de Incidencia con visita técnica', 'Reparación Acceso Fibra', 'Reparación Terminal de Usuario',
+    ]
 
-actividades_asignadas = data_filtrada[~data_filtrada['Tipo de actividad'].isin(excluir_actividades)].copy()
-total_asignadas_serie = actividades_asignadas['Recurso'].value_counts()
-ranking_asignadas_df = pd.DataFrame({'Técnico': total_asignadas_serie.index, 'Total Asignadas': total_asignadas_serie.values})
+    # ID de recurso a excluir
+    ids_excluir = [3824, 3825, 3826, 3823, 3822, 5286, 4131, 5362]
 
-actividades_finalizadas = actividades_asignadas[actividades_asignadas['Estado de actividad'].str.lower() == 'finalizada'].copy()
-productividad_ranking_serie = actividades_finalizadas['Recurso'].value_counts()
-productividad_ranking_df = pd.DataFrame({'Técnico': productividad_ranking_serie.index, 'Total Finalizadas': productividad_ranking_serie.values})
-
-productividad_final_df = pd.merge(productividad_ranking_df, ranking_asignadas_df, on='Técnico', how='left').fillna(0)
-productividad_final_df['Porcentaje de Efectividad'] = (
-    productividad_final_df['Total Finalizadas'] / productividad_final_df['Total Asignadas'] * 100
-).round(2).fillna(0).astype(str) + '%'
-productividad_final_df = productividad_final_df.sort_values(by='Total Finalizadas', ascending=False).reset_index(drop=True)
-productividad_final_df.index = productividad_final_df.index + 1
-
-# Mostrar tabla
-st.dataframe(productividad_final_df)
-
-# Mensaje informativo
-if fecha_seleccionada and productividad_final_df.empty:
-    st.info(f"No hay datos de actividades para la fecha: {fecha_seleccionada.strftime('%Y-%m-%d')}")
-elif not fecha_seleccionada:
-    st.info("Mostrando el ranking completo (sin filtro de fecha).")
-
-
-    # --- Técnicos que mencionan U2000 ---
-    st.markdown("---")
-    st.subheader("Técnicos que Realizan U2000")
-
-    # Filtrar menciones de "u2000", "u 2000", "u200", etc., sin importar mayúsculas/minúsculas
-    u2000_mentions = data_combinada[
-        data_combinada['Observación'].str.contains(r'u\s?2000|u\s?200|u200', flags=re.IGNORECASE, na=False)
+    # Filtrar actividades válidas
+    actividades_validas = data_filtrada[
+        (~data_filtrada['Tipo de actividad'].isin(excluir_actividades)) &
+        (~data_filtrada['ID de recurso'].isin(ids_excluir))
     ].copy()
 
-    # Mostrar ranking si hay resultados
-    if not u2000_mentions.empty:
-        u2000_ranking_serie = u2000_mentions['Recurso'].value_counts()
-        u2000_ranking_df = pd.DataFrame({
-            'Técnico': u2000_ranking_serie.index,
-            'Cantidad U2000': u2000_ranking_serie.values
-        })
-        u2000_ranking_df.index = u2000_ranking_df.index + 1
-        st.dataframe(u2000_ranking_df)
-    else:
-        st.info("Ningún técnico ha mencionado 'u2000' en las observaciones.")
+    # Ranking por técnico
+    total_asignadas_serie = actividades_validas['Recurso'].value_counts()
+    ranking_asignadas_df = pd.DataFrame({'Técnico': total_asignadas_serie.index, 'Total Asignadas': total_asignadas_serie.values})
 
+    actividades_finalizadas = actividades_validas[actividades_validas['Estado de actividad'].str.lower() == 'finalizada'].copy()
+    productividad_ranking_serie = actividades_finalizadas['Recurso'].value_counts()
+    productividad_ranking_df = pd.DataFrame({'Técnico': productividad_ranking_serie.index, 'Total Finalizadas': productividad_ranking_serie.values})
+
+    # Agregar columna con tipos de actividad (en una misma línea separados por coma)
+    tipos_por_tecnico = actividades_validas.groupby('Recurso')['Tipo de actividad'].apply(lambda x: ', '.join(sorted(set(x)))).reset_index()
+    tipos_por_tecnico.columns = ['Técnico', 'Tipo de actividad']
+
+    # Unir y calcular efectividad
+    productividad_final_df = pd.merge(productividad_ranking_df, ranking_asignadas_df, on='Técnico', how='left')
+    productividad_final_df = pd.merge(productividad_final_df, tipos_por_tecnico, on='Técnico', how='left')
+    productividad_final_df['Porcentaje de Efectividad'] = (
+        productividad_final_df['Total Finalizadas'] / productividad_final_df['Total Asignadas'] * 100
+    ).round(2).fillna(0).astype(str) + '%'
+    productividad_final_df = productividad_final_df.sort_values(by='Total Finalizadas', ascending=False).reset_index(drop=True)
+    productividad_final_df.index = productividad_final_df.index + 1
+
+    # Mostrar tabla
+    st.dataframe(productividad_final_df)
+
+    # Mostrar KPI de total de técnicos (ahora está debajo de la tabla)
+    total_tecnicos = actividades_validas['Recurso'].nunique()
+    if fecha_seleccionada:
+        st.markdown(f"### 👷‍♂️ Total de Técnicos = {total_tecnicos} técnicos el {fecha_seleccionada.strftime('%d de %B %Y')}")
+    else:
+        st.markdown(f"### 👷‍♂️ Total de Técnicos = {total_tecnicos} técnicos (sin filtro de fecha)")
+
+    # Mensaje informativo
+    if fecha_seleccionada and productividad_final_df.empty:
+        st.info(f"No hay datos de actividades para la fecha: {fecha_seleccionada.strftime('%Y-%m-%d')}")
+    elif not fecha_seleccionada:
+        st.info("Mostrando el ranking completo (sin filtro de fecha).")
+
+    # --- Métricas de efectividad ---
+    def calcular_metricas(df, palabras_clave, meta):
+        if isinstance(palabras_clave, str):
+            palabras_clave = [palabras_clave]
+        filtro_tipo = df['Tipo de actividad'].str.contains('|'.join(palabras_clave), case=False, na=False)
+        asignadas = df[filtro_tipo & df['Estado de actividad'].str.lower().isin(['finalizada', 'no realizado'])].shape[0]
+        finalizadas = df[filtro_tipo & (df['Estado de actividad'].str.lower() == 'finalizada')].shape[0]
+        efectividad = (finalizadas / asignadas * 100) if asignadas > 0 else 0
+        color = "normal" if efectividad >= meta else "inverse"
+        return asignadas, finalizadas, efectividad, color
+
+    # Calcular métricas con data_filtrada válida
+    repa_asig, repa_fin, repa_eff, repa_color = calcular_metricas(actividades_validas, 'reparación', 90)
+    inst_post_asig, inst_post_fin, inst_post_eff, inst_post_color = calcular_metricas(actividades_validas, ['instalación', 'postventa'], 80)
+
+    multi_asig = repa_asig + inst_post_asig
+    multi_fin = repa_fin + inst_post_fin
+    multi_eff = (multi_fin / multi_asig * 100) if multi_asig > 0 else 0
+    multi_color = "normal" if multi_eff >= 90 else "inverse"
+
+    # Mostrar métricas
+    if not data_filtrada.empty:
+        st.subheader("📌 Métricas de Efectividad")
+
+        # Multiskill
+        st.markdown("**Multiskill**")
+        cols_multi = st.columns(4)
+        cols_multi[0].metric("Asignadas", multi_asig)
+        cols_multi[1].metric("Finalizadas", multi_fin)
+        cols_multi[2].metric("Efectividad", f"{multi_eff:.2f}%")
+
+        # Reparación
+        st.markdown("**Reparación**")
+        cols_repa = st.columns(4)
+        cols_repa[0].metric("Asignadas", repa_asig)
+        cols_repa[1].metric("Finalizadas", repa_fin)
+        cols_repa[2].metric("Efectividad", f"{repa_eff:.2f}%", delta="Meta: 90%", delta_color=repa_color)
+
+        # Instalación + Postventa
+        st.markdown("**Instalación + Postventa**")
+        cols_inst = st.columns(4)
+        cols_inst[0].metric("Asignadas", inst_post_asig)
+        cols_inst[1].metric("Finalizadas", inst_post_fin)
+        cols_inst[2].metric("Efectividad", f"{inst_post_eff:.2f}%", delta="Meta: 80%", delta_color=inst_post_color)
+
+        
+        #Grafico actividad por meses
+        # Asegurar formato datetime y filtrar solo año 2025
+
+        # Convertir fechas y generar columnas de mes
+        data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y', errors='coerce')
+        data_2025 = data_combinada[data_combinada['Fecha Agendamiento'].dt.year == 2025].copy()
+
+        # Mapeo y orden de meses en español
+        meses_orden = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+            7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        data_2025['Mes_Num'] = data_2025['Fecha Agendamiento'].dt.month
+        data_2025['Mes'] = data_2025['Mes_Num'].map(meses_orden)
+        orden_meses = list(meses_orden.values())
+
+        # Función para calcular los datos mensuales
+        def datos_mensuales(df, tipo):
+            if tipo == "instalación":
+                filtro = df['Tipo de actividad'].str.contains('instalación|postventa', case=False, na=False)
+            elif tipo == "reparación":
+                filtro = df['Tipo de actividad'].str.contains('reparación', case=False, na=False)
+            elif tipo == "multiskill":
+                filtro = df['Tipo de actividad'].str.contains('instalación|postventa|reparación', case=False, na=False)
+            else:
+                return pd.DataFrame()
+
+            df_filtrado = df[filtro].copy()
+            df_filtrado['Finalizada'] = df_filtrado['Estado de actividad'].str.lower() == 'finalizada'
+            df_filtrado['Asignada'] = df_filtrado['Estado de actividad'].str.lower().isin(['finalizada', 'no realizado'])
+
+            df_grouped = df_filtrado.groupby('Mes').agg(
+                Finalizadas=('Finalizada', 'sum'),
+                Asignadas=('Asignada', 'sum')
+            ).reindex(orden_meses).fillna(0).astype(int)
+
+            df_grouped['Productividad'] = (
+                df_grouped['Finalizadas'] / df_grouped['Asignadas'].replace(0, pd.NA) * 100
+            ).round(2).fillna(0)
+
+            return df_grouped.reset_index()
+
+        # Función para graficar las actividades
+        def graficar(df, titulo):
+            fig = go.Figure()
+            
+            # Barras apiladas
+            fig.add_trace(go.Bar(
+                x=df['Mes'], y=df['Asignadas'], name='Asignadas',
+                marker_color='#AED6F1'  # azul clarito
+            ))
+            
+            fig.add_trace(go.Bar(
+                x=df['Mes'], y=df['Finalizadas'], name='Finalizadas',
+                marker_color='#3498DB'  # Azul actual
+            ))
+
+            # Etiquetas de productividad sobre la barra
+            for i, row in df.iterrows():
+                altura_total = row['Asignadas'] + row['Finalizadas']
+                fig.add_annotation(
+                    x=row['Mes'],
+                    y=altura_total + 20,
+                    text=f"{row['Productividad']:.1f}%",
+                    showarrow=False,
+                    font=dict(size=20, color='black')
+                )
+
+            fig.update_layout(
+                barmode='stack',
+                title=titulo,
+                xaxis_title='Mes',
+                yaxis_title='Cantidad de Actividades',
+                legend_title='Estado',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                height=400
+            )
+            
+            return fig
+
+        # Generar DataFrames por tipo de actividad
+        multi_df = datos_mensuales(data_2025, "multiskill")
+        repa_df = datos_mensuales(data_2025, "reparación")
+        inst_df = datos_mensuales(data_2025, "instalación")
+
+        # Mostrar en la app de Streamlit
+        st.subheader("📊 Gráfico de Actividades Mensuales (2025)")
+        st.plotly_chart(graficar(multi_df, "Multiskill (Reparación + Instalación + Postventa)"), use_container_width=True)
+        st.plotly_chart(graficar(repa_df, "Reparación"), use_container_width=True)
+        st.plotly_chart(graficar(inst_df, "Instalación + Postventa"), use_container_width=True)
+
+
+        #Tecnicos promedios pormes
+        # Crear mapeo y orden de meses
+        # Mapeo y orden de meses en español (mantener al inicio)
+        meses_orden = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+            7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        orden_meses = list(meses_orden.values())
+
+        # Asegurar datetime y filtrar 2025
+        # Asegurar datetime y filtrar por año 2025
+        data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y', errors='coerce')
+        data_2025 = data_combinada[data_combinada['Fecha Agendamiento'].dt.year == 2025].copy()
+
+        # Aplicar filtros de exclusión
+        excluir_estados = [
+            'Reparación CPE (Router, ONT, Modem)',
+            'Atención de Incidencia con visita técnica',
+            'Reparación Acceso Cobre',
+            'Reparación Acceso Fibra',
+            'Reparación Terminal de Usuario'
+        ]
+        ids_excluir = [3824, 3825, 3826, 3823, 3822, 5286, 4131, 5362]
+
+        data_2025_filtrada = data_2025[
+            (~data_2025['Estado de actividad'].isin(excluir_estados)) &
+            (~data_2025['ID de recurso'].isin(ids_excluir))
+        ].copy()
+
+        # Generar columnas auxiliares para mes y fecha
+        data_2025_filtrada['Fecha'] = data_2025_filtrada['Fecha Agendamiento'].dt.date
+        data_2025_filtrada['Mes_Num'] = data_2025_filtrada['Fecha Agendamiento'].dt.month
+        data_2025_filtrada['Mes'] = data_2025_filtrada['Mes_Num'].map(meses_orden)
+
+        # Agrupación por día para gráfico
+        tecnicos_por_dia = data_2025_filtrada.groupby(['Fecha']).agg(
+            Tecnicos_Unicos=('Recurso', 'nunique'),
+            Mes_Num=('Mes_Num', 'first'),
+            Mes=('Mes', 'first')
+        ).reset_index()
+
+        promedio_tecnicos_final = (
+            tecnicos_por_dia
+            .groupby(['Mes_Num', 'Mes'])
+            .agg(Promedio_Tecnicos_Diario=('Tecnicos_Unicos', 'mean'))
+            .round(2)
+            .reset_index()
+            .sort_values('Mes_Num')
+            .set_index('Mes')
+            .reindex(orden_meses)
+            .drop(columns='Mes_Num')
+        )
+
+        # Mostrar gráfico en Streamlit
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=promedio_tecnicos_final.index,
+            y=promedio_tecnicos_final['Promedio_Tecnicos_Diario'],
+            name='Promedio Diario de Técnicos',
+            marker_color='#F5B041'
+        ))
+
+        for i, row in promedio_tecnicos_final.reset_index().iterrows():
+            fig.add_annotation(
+                x=row['Mes'],
+                y=row['Promedio_Tecnicos_Diario'] + 5,
+                text=f"{row['Promedio_Tecnicos_Diario']:.1f}",
+                showarrow=False,
+                font=dict(size=18, color='black')
+            )
+
+        fig.update_layout(
+            title="📈 Promedio Diario de Técnicos por Mes (2025)",
+            xaxis_title="Mes",
+            yaxis_title="Promedio de Técnicos por Día",
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            height=400
+        )
+
+        # Mostrar gráfico
+        st.subheader("👷 Promedio Diario de Técnicos por Mes (2025)")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # --- EXCEL CON TÉCNICOS POR DÍA ---
+       # Crear un Excel con una hoja por mes: cada hoja muestra técnicos por día
+        excel_buffer = io.BytesIO()
+
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            for mes_num, mes_nombre in meses_orden.items():
+                # Filtrar por mes
+                data_mes = data_2025_filtrada[data_2025_filtrada['Mes_Num'] == mes_num].copy()
+                if data_mes.empty:
+                    continue
+
+                # Preparar columnas necesarias
+                data_mes['Fecha_str'] = data_mes['Fecha Agendamiento'].dt.strftime('%d/%m/%Y')
+                data_mes['ID Recurso y Nombre'] = data_mes['ID de recurso'].astype(str) + ' ' + data_mes['Recurso']
+
+                # Crear tabla dinámica
+                pivot_mes = data_mes.pivot_table(
+                    index='ID Recurso y Nombre',
+                    columns='Fecha_str',
+                    values='Recurso',
+                    aggfunc='first',
+                    fill_value=''
+                )
+
+                # Agregar columna de total (días trabajados en ese mes)
+                pivot_mes['Días trabajados'] = (pivot_mes != '').sum(axis=1)
+
+                # Agregar fila de cantidad de técnicos por día
+                cantidad_por_dia = (pivot_mes != '').sum(axis=0)
+                pivot_mes.loc['Cantidad de Técnicos'] = cantidad_por_dia
+
+                # Ordenar columnas por fecha
+                columnas_fechas = [col for col in pivot_mes.columns if col != 'Días trabajados']
+                columnas_ordenadas = sorted(columnas_fechas, key=lambda x: pd.to_datetime(x, dayfirst=True))
+                pivot_mes = pivot_mes[columnas_ordenadas + ['Días trabajados']]
+
+                # Escribir en hoja del mes
+                pivot_mes.to_excel(writer, sheet_name=mes_nombre)
+
+        # Botón para descargar
+        st.download_button(
+            label="📥 Descargar Excel con hojas por mes",
+            data=excel_buffer.getvalue(),
+            file_name="tecnicos_por_dia_por_mes.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+
+        # --- Técnicos que mencionan U2000 ---
+        st.markdown("---")
+        st.subheader("Técnicos que Realizan U2000")
+
+        # Crear un selector de mes
+        meses_orden = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+            7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        meses = ['Selecciona'] + list(meses_orden.values())
+
+        # Agregar un selector de mes
+        mes_seleccionado = st.selectbox("Selecciona un mes:", meses)
+
+        # Filtrar la data según el mes seleccionado
+        if mes_seleccionado != 'Selecciona':
+            mes_num = list(meses_orden.keys())[list(meses_orden.values()).index(mes_seleccionado)]
+            data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y', errors='coerce')
+            data_filtrada_por_mes = data_combinada[data_combinada['Fecha Agendamiento'].dt.month == mes_num]
+        else:
+            data_filtrada_por_mes = data_combinada.copy()
+
+        # Crear un selector de día
+        dias_del_mes = sorted(data_filtrada_por_mes['Fecha Agendamiento'].dt.day.unique())
+        dias_del_mes = ['Selecciona'] + dias_del_mes  # Agregar opción de 'Selecciona' al principio
+        dia_seleccionado = st.selectbox("Selecciona un día:", dias_del_mes)
+
+        # Filtrar la data según el día seleccionado
+        if dia_seleccionado != 'Selecciona':
+            data_filtrada_por_dia = data_filtrada_por_mes[data_filtrada_por_mes['Fecha Agendamiento'].dt.day == dia_seleccionado]
+        else:
+            data_filtrada_por_dia = data_filtrada_por_mes.copy()
+
+        # Filtrar menciones de "u2000", "u 2000", "u200", etc., sin importar mayúsculas/minúsculas
+        u2000_mentions = data_filtrada_por_dia[
+            data_filtrada_por_dia['Observación'].str.contains(r'u\s?2000|u\s?200|u200', flags=re.IGNORECASE, na=False)
+        ].copy()
+
+        # Mostrar ranking si hay resultados
+        if not u2000_mentions.empty:
+            u2000_ranking_serie = u2000_mentions['Recurso'].value_counts()
+            u2000_ranking_df = pd.DataFrame({
+                'Técnico': u2000_ranking_serie.index,
+                'Cantidad U2000': u2000_ranking_serie.values
+            })
+            u2000_ranking_df.index = u2000_ranking_df.index + 1
+            st.dataframe(u2000_ranking_df)
+        else:
+            st.info("Ningún técnico ha mencionado 'u2000' en las observaciones.")
 
         # --- Ranking de Técnicos Más Rápidos (Tiempo Promedio) ---
-    st.markdown("---")
-    st.subheader("Ranking de Técnicos Más Rápidos (Tiempo Promedio por Trabajo Finalizado en Horas)")
+        st.markdown("---")
+        st.subheader("Ranking de Técnicos Más Rápidos (Tiempo Promedio por Trabajo Finalizado en Horas)")
 
-    @st.cache_data
-    def calcular_ranking_tiempo(df):
-        """Calcula el ranking de técnicos más rápidos basado en el tiempo promedio
-        de trabajos de instalación, reparación o postventa finalizados.
-        """
-        # Filtrar por tipos de actividad relevantes
-        actividades_filtradas = df[
-            df['Tipo de actividad'].astype(str).str.contains(
-                r'instalaci[oó]n|reparaci[oó]n|postventa',
-                case=False,
-                regex=True,
-                na=False
-            )
-        ].copy()
+        # Crear un selector de mes
+        meses_orden = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+            7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        meses = ['Selecciona'] + list(meses_orden.values())
 
-        # Filtrar por actividades finalizadas con duración válida
-        actividades_finalizadas = actividades_filtradas[
-            (actividades_filtradas['Estado de actividad'].str.lower() == 'finalizada') &
-            (actividades_filtradas['Duración'] != '00:00') &
-            (pd.notna(actividades_filtradas['Duración']))
-        ].copy()
+        # Agregar un selector de mes con un key único
+        mes_seleccionado = st.selectbox("Selecciona un mes:", meses, key="mes_selector")
 
-        if actividades_finalizadas.empty:
-            return pd.DataFrame({'Técnico': [], 'Tiempo Promedio': []})
-
-        # Convertir duración HH:MM a minutos
-        def tiempo_a_minutos(tiempo_str):
-            try:
-                horas, minutos = map(int, tiempo_str.split(':'))
-                return horas * 60 + minutos
-            except:
-                return None
-
-        actividades_finalizadas = actividades_finalizadas.assign(
-            duracion_min=actividades_finalizadas['Duración'].apply(tiempo_a_minutos)
-        ).dropna(subset=['duracion_min'])
-
-        if actividades_finalizadas.empty:
-            return pd.DataFrame({'Técnico': [], 'Tiempo Promedio': []})
-
-        # Calcular promedio por técnico
-        promedio_por_tecnico = actividades_finalizadas.groupby('Recurso')['duracion_min'].mean().sort_values()
-
-        # Armar el DataFrame final
-        ranking_df = pd.DataFrame({
-            'Técnico': promedio_por_tecnico.index,
-            'Tiempo Promedio': promedio_por_tecnico.apply(
-                lambda x: f"{int(x // 60)} hrs {int(x % 60)} min" if pd.notna(x) else "Sin datos"
-            )
-        }).reset_index(drop=True)
-
-        ranking_df.index = ranking_df.index + 1
-        return ranking_df
-
-    # Mostrar ranking en la app
-    ranking_tiempo_df = calcular_ranking_tiempo(data_combinada)
-    if not ranking_tiempo_df.empty:
-        st.dataframe(ranking_tiempo_df)
-    else:
-        st.info("No hay suficientes actividades finalizadas de instalación, reparación o postventa con tiempos válidos para calcular el ranking de tiempo promedio.")
-
-
-        # --- Gráfico de Torta: Causa de la falla ---
-    st.markdown("---")
-    st.subheader("Distribución de Causas de la Falla")
-
-    columna_causa_falla = 'Causa de la falla'
-    grafico_placeholder = st.empty()
-
-    if columna_causa_falla in data_combinada.columns:
-        # Eliminar valores nulos y contar ocurrencias
-        causa_falla_counts_total = data_combinada[columna_causa_falla].dropna().value_counts()
-        
-        # Separar top 10 causas
-        top_10 = causa_falla_counts_total.head(10)
-        otras = causa_falla_counts_total[10:]
-        
-        # Crear DataFrame con "Otras" sumadas
-        causa_falla_counts = top_10.copy()
-        if not otras.empty:
-            causa_falla_counts["Otras"] = otras.sum()
-        causa_falla_counts = causa_falla_counts.reset_index()
-        causa_falla_counts.columns = ['Causa', 'Cantidad']
-
-        if not causa_falla_counts.empty:
-            fig_causa_falla = px.pie(
-                causa_falla_counts,
-                names='Causa',
-                values='Cantidad',
-                title='Distribución de Causas de la Falla (Top 10 + Otras)',
-                hole=0.3
-            )
-            fig_causa_falla.update_traces(textinfo='percent+label')
-            grafico_placeholder.plotly_chart(fig_causa_falla)
+        # Filtrar la data según el mes seleccionado
+        if mes_seleccionado != 'Selecciona':
+            mes_num = list(meses_orden.keys())[list(meses_orden.values()).index(mes_seleccionado)]
+            data_combinada['Fecha Agendamiento'] = pd.to_datetime(data_combinada['Fecha Agendamiento'], format='%d/%m/%y', errors='coerce')
+            data_filtrada_por_mes = data_combinada[data_combinada['Fecha Agendamiento'].dt.month == mes_num]
         else:
-            grafico_placeholder.warning("No hay datos válidos para mostrar en la columna 'Causa de la falla'.")
-    else:
-        grafico_placeholder.warning(f"La columna '{columna_causa_falla}' no se encontró en los datos.")
+            data_filtrada_por_mes = data_combinada.copy()
+
+        # Crear un selector de día
+        dias_del_mes = sorted(data_filtrada_por_mes['Fecha Agendamiento'].dt.day.unique())
+        dias_del_mes = ['Selecciona'] + dias_del_mes  # Agregar opción de 'Selecciona' al principio
+        dia_seleccionado = st.selectbox("Selecciona un día:", dias_del_mes, key="dia_selector")
+
+        # Filtrar la data según el día seleccionado
+        if dia_seleccionado != 'Selecciona':
+            data_filtrada_por_dia = data_filtrada_por_mes[data_filtrada_por_mes['Fecha Agendamiento'].dt.day == dia_seleccionado]
+        else:
+            data_filtrada_por_dia = data_filtrada_por_mes.copy()
+
+        @st.cache_data
+        def calcular_ranking_tiempo(df):
+            """Calcula el ranking de técnicos más rápidos basado en el tiempo promedio
+            de trabajos de instalación, reparación o postventa finalizados.
+            """
+            # Filtrar por tipos de actividad relevantes
+            actividades_filtradas = df[
+                df['Tipo de actividad'].astype(str).str.contains(
+                    r'instalaci[oó]n|reparaci[oó]n|postventa',
+                    case=False,
+                    regex=True,
+                    na=False
+                )
+            ].copy()
+
+            # Filtrar por actividades finalizadas con duración válida
+            actividades_finalizadas = actividades_filtradas[
+                (actividades_filtradas['Estado de actividad'].str.lower() == 'finalizada') & 
+                (actividades_filtradas['Duración'] != '00:00') & 
+                (pd.notna(actividades_filtradas['Duración']))
+            ].copy()
+
+            if actividades_finalizadas.empty:
+                return pd.DataFrame({'Técnico': [], 'Tiempo Promedio': []})
+
+            # Convertir duración HH:MM a minutos
+            def tiempo_a_minutos(tiempo_str):
+                try:
+                    horas, minutos = map(int, tiempo_str.split(':'))
+                    return horas * 60 + minutos
+                except:
+                    return None
+
+            actividades_finalizadas = actividades_finalizadas.assign(
+                duracion_min=actividades_finalizadas['Duración'].apply(tiempo_a_minutos)
+            ).dropna(subset=['duracion_min'])
+
+            if actividades_finalizadas.empty:
+                return pd.DataFrame({'Técnico': [], 'Tiempo Promedio': []})
+
+            # Calcular promedio por técnico
+            promedio_por_tecnico = actividades_finalizadas.groupby('Recurso')['duracion_min'].mean().sort_values()
+
+            # Armar el DataFrame final
+            ranking_df = pd.DataFrame({
+                'Técnico': promedio_por_tecnico.index,
+                'Tiempo Promedio': promedio_por_tecnico.apply(
+                    lambda x: f"{int(x // 60)} hrs {int(x % 60)} min" if pd.notna(x) else "Sin datos"
+                )
+            }).reset_index(drop=True)
+
+            ranking_df.index = ranking_df.index + 1
+            return ranking_df
+
+        # Mostrar ranking en la app
+        ranking_tiempo_df = calcular_ranking_tiempo(data_filtrada_por_dia)
+        if not ranking_tiempo_df.empty:
+            st.dataframe(ranking_tiempo_df)
+        else:
+            st.info("No hay suficientes actividades finalizadas de instalación, reparación o postventa con tiempos válidos para calcular el ranking de tiempo promedio.")
+
+      
+        # --- Gráfico de Torta: Causa de la falla ---
+        st.markdown("---")
+        st.subheader("Distribución de Causas de la Falla")
+
+        columna_causa_falla = 'Causa de la falla'
+        grafico_placeholder = st.empty()
+
+        if columna_causa_falla in data_combinada.columns:
+            # Eliminar valores nulos y contar ocurrencias
+            causa_falla_counts_total = data_combinada[columna_causa_falla].dropna().value_counts()
+            
+            # Separar top 10 causas
+            top_10 = causa_falla_counts_total.head(10)
+            otras = causa_falla_counts_total[10:]
+            
+            # Crear DataFrame con "Otras" sumadas
+            causa_falla_counts = top_10.copy()
+            if not otras.empty:
+                causa_falla_counts["Otras"] = otras.sum()
+            causa_falla_counts = causa_falla_counts.reset_index()
+            causa_falla_counts.columns = ['Causa', 'Cantidad']
+
+            if not causa_falla_counts.empty:
+                fig_causa_falla = px.pie(
+                    causa_falla_counts,
+                    names='Causa',
+                    values='Cantidad',
+                    title='Distribución de Causas de la Falla (Top 10 + Otras)',
+                    hole=0.3
+                )
+                fig_causa_falla.update_traces(textinfo='percent+label')
+                grafico_placeholder.plotly_chart(fig_causa_falla)
+            else:
+                grafico_placeholder.warning("No hay datos válidos para mostrar en la columna 'Causa de la falla'.")
+        else:
+            grafico_placeholder.warning(f"La columna '{columna_causa_falla}' no se encontró en los datos.")
 
     # --- Sección Reincidencias y fallas tempranas ---
     analizar_reincidencias_y_fallas_tempranas()
